@@ -71,6 +71,47 @@ function extractThicknessMm(query) {
   return Number.isFinite(v) ? v : null;
 }
 
+function generateExplanation(product, query) {
+  const q = String(query || "").toLowerCase();
+  const reasons = [];
+
+  if (product.thickness) {
+    const thicknessText = String(product.thickness);
+    const thicknessNeedle = thicknessText.replace(/mm/gi, "").trim().toLowerCase();
+    if (thicknessNeedle && q.includes(thicknessNeedle)) {
+      reasons.push(`matches required thickness (${product.thickness})`);
+    }
+  }
+
+  if (product.category && q.includes(String(product.category).toLowerCase())) {
+    reasons.push(`suitable for ${String(product.category).toLowerCase()} applications`);
+  }
+
+  if (product.color && q.includes(String(product.color).toLowerCase())) {
+    reasons.push(`matches color preference (${product.color})`);
+  }
+
+  const description = String(product.description || "").toLowerCase();
+
+  if (q.includes("balcony") && description.includes("balcony")) {
+    reasons.push("ideal for balcony usage");
+  }
+
+  if (q.includes("office") && description.includes("office")) {
+    reasons.push("fits office partition use-case");
+  }
+
+  if (q.includes("window") && description.includes("window")) {
+    reasons.push("suitable for window installations");
+  }
+
+  if (reasons.length === 0) {
+    return "Relevant based on overall requirement and product specifications.";
+  }
+
+  return `${reasons.join(", ")}.`;
+}
+
 function heuristicMatch(query, products) {
   const q = String(query || "").toLowerCase();
   const desiredThickness = extractThicknessMm(q);
@@ -170,7 +211,7 @@ function heuristicMatch(query, products) {
     .map((p) => ({
       product_name: p.name,
       score: scoreProduct(p),
-      explanation: `Heuristic match on safety/usage/thickness and budget-color fit.`,
+      explanation: generateExplanation(p, query),
       product: p,
     }))
     .sort((a, b) => b.score - a.score)
@@ -226,7 +267,7 @@ async function llmMatch(query, products) {
       return {
         product_name: productName || product?.name || null,
         score: Number.isFinite(score) ? clamp(Math.round(score), 0, 100) : 0,
-        explanation: explanation || "",
+        explanation: explanation || generateExplanation(product, query),
         product,
       };
     })
@@ -245,6 +286,10 @@ const products = loadProducts();
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true, products: products.length });
+});
+
+app.get("/products", (_req, res) => {
+  res.json({ products });
 });
 
 app.post("/match", async (req, res) => {
