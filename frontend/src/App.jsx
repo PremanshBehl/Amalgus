@@ -541,6 +541,16 @@ export default function App() {
                                 </span>
                               </div>
 
+                              {/* Match score bar */}
+                              <div className="mt-3">
+                                <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-2 bg-blue-500 rounded-full"
+                                    style={{ width: `${score}%` }}
+                                  />
+                                </div>
+                              </div>
+
                               <div className="mt-3 grid grid-cols-2 gap-3">
                                 <div className="rounded-xl bg-slate-50 p-3">
                                   <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
