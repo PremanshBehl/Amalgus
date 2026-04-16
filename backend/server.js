@@ -109,7 +109,24 @@ function generateExplanation(product, query) {
     return "Relevant based on overall requirement and product specifications.";
   }
 
-  return `${reasons.join(", ")}.`;
+  const joined = reasons.join(", ");
+  return `${joined.charAt(0).toUpperCase()}${joined.slice(1)}.`;
+}
+
+function serializeProduct(product) {
+  return {
+    id: product.id,
+    name: product.name,
+    category: product.category,
+    thickness: product.thickness,
+    size: product.size,
+    color: product.color,
+    edge_finish: product.edge_finish,
+    certification: product.certification,
+    supplier: product.supplier,
+    price_per_sqm: product.price_per_sqm ?? product.price,
+    description: product.description,
+  };
 }
 
 function heuristicMatch(query, products) {
@@ -262,12 +279,15 @@ async function llmMatch(query, products) {
     .map((item) => {
       const productName = String(item.product_name || "");
       const score = Number(item.score);
-      const explanation = String(item.explanation || "");
       const product = nameToProduct.get(normalizeName(productName)) || null;
+
+      // Always compute logic-based, product-specific explanations.
+      // This keeps output consistent even if the model returns generic text.
+      const explanation = product ? generateExplanation(product, query) : String(item.explanation || "");
       return {
-        product_name: productName || product?.name || null,
+        product_name: product?.name || productName || null,
         score: Number.isFinite(score) ? clamp(Math.round(score), 0, 100) : 0,
-        explanation: explanation || generateExplanation(product, query),
+        explanation,
         product,
       };
     })
@@ -306,19 +326,7 @@ app.post("/match", async (req, res) => {
           product_name: m.product_name,
           score: m.score,
           explanation: m.explanation,
-          product: {
-            id: m.product.id,
-            name: m.product.name,
-            category: m.product.category,
-            thickness: m.product.thickness,
-            size: m.product.size,
-            color: m.product.color,
-            edge_finish: m.product.edge_finish,
-            certification: m.product.certification,
-            supplier: m.product.supplier,
-            price_per_sqm: m.product.price_per_sqm ?? m.product.price,
-            description: m.product.description,
-          },
+          product: serializeProduct(m.product),
         })),
         source: process.env.OPENAI_API_KEY ? "llm" : "heuristic",
       });
@@ -326,7 +334,15 @@ app.post("/match", async (req, res) => {
 
     // Fallback: keep prototype runnable without an API key.
     const heuristic = heuristicMatch(query, products);
-    return res.json({ matches: heuristic, source: "heuristic" });
+    return res.json({
+      matches: heuristic.map((m) => ({
+        product_name: m.product_name,
+        score: m.score,
+        explanation: m.explanation,
+        product: serializeProduct(m.product),
+      })),
+      source: "heuristic",
+    });
   } catch (err) {
     return res.status(500).json({
       error: err?.message || "Unexpected error",
