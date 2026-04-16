@@ -4,7 +4,7 @@ function formatMoneyPerSqm(value) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "—";
   // Industry pricing is usually "per sqm"; keep it clean for the demo.
-  return `$${Math.round(n).toLocaleString()}`;
+  return `₹${Math.round(n).toLocaleString()}`;
 }
 
 function SearchIcon({ className }) {
@@ -78,12 +78,209 @@ export default function App() {
   const [allProducts, setAllProducts] = useState([]);
   const [error, setError] = useState("");
 
+  const defaultFilters = useMemo(
+    () => ({
+      category: "All",
+      maxPrice: 10000,
+      minThickness: "",
+      maxThickness: "",
+    }),
+    []
+  );
+
+  const [catalogMaxPrice, setCatalogMaxPrice] = useState(10000);
+  const [filters, setFilters] = useState(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState(defaultFilters);
+
+  const suggestions = useMemo(
+    () => [
+      "Safe glass for balcony railing",
+      "Soundproof glass for office partitions",
+      "Energy efficient window glass",
+      "Tinted glass for building facade",
+      "Laminated safety glass for doors",
+    ],
+    []
+  );
+
   useEffect(() => {
     fetch(`${API_URL}/products`)
       .then((res) => res.json())
-      .then((data) => setAllProducts(Array.isArray(data?.products) ? data.products : []))
+      .then((data) => {
+        const prods = Array.isArray(data?.products) ? data.products : [];
+        setAllProducts(prods);
+
+        const prices = prods
+          .map((p) => Number(p?.price_per_sqm ?? p?.price))
+          .filter((n) => Number.isFinite(n));
+        const max = prices.length ? Math.max(...prices) : 10000;
+        setCatalogMaxPrice(max);
+
+        setFilters((prev) => ({
+          ...prev,
+          maxPrice: Math.min(Number(prev.maxPrice || max), max),
+        }));
+        setDraftFilters((prev) => ({
+          ...prev,
+          maxPrice: Math.min(Number(prev.maxPrice || max), max),
+        }));
+      })
       .catch(() => {});
   }, [API_URL]);
+
+  const availableCategories = useMemo(() => {
+    const cats = Array.from(
+      new Set(allProducts.map((p) => p?.category).filter(Boolean))
+    );
+    cats.sort((a, b) => String(a).localeCompare(String(b)));
+    return ["All", ...cats];
+  }, [allProducts]);
+
+  function productPrice(p) {
+    const n = Number(p?.price_per_sqm ?? p?.price);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function productThicknessMm(p) {
+    const text = String(p?.thickness || "");
+    const m = text.match(/(\d+(?:\.\d+)?)/);
+    const n = m ? Number(m[1]) : NaN;
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function productMatchesFilters(p) {
+    if (!p) return false;
+
+    if (filters.category !== "All" && p.category !== filters.category) return false;
+
+    const price = productPrice(p);
+    if (!Number.isFinite(price)) return false;
+    if (price > filters.maxPrice) return false;
+
+    const t = productThicknessMm(p);
+    if (filters.minThickness !== "") {
+      const min = Number(filters.minThickness);
+      if (!Number.isFinite(min) || !Number.isFinite(t) || t < min) return false;
+    }
+    if (filters.maxThickness !== "") {
+      const max = Number(filters.maxThickness);
+      if (!Number.isFinite(max) || !Number.isFinite(t) || t > max) return false;
+    }
+
+    return true;
+  }
+
+  const filteredMatched = useMemo(() => {
+    if (!results.length) return [];
+    return results.filter((r) => productMatchesFilters(r?.product));
+  }, [results, filters]); // filters impacts filtering
+
+  const filteredCatalog = useMemo(() => {
+    if (!allProducts.length) return [];
+    return allProducts.filter((p) => productMatchesFilters(p));
+  }, [allProducts, filters]);
+
+  const FiltersSidebar = (
+    <aside className="lg:sticky lg:top-24 self-start rounded-2xl border border-slate-200/70 bg-white/70 p-4 shadow-sm backdrop-blur">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">Filters</div>
+          <div className="text-xs text-slate-500">Refine your catalog results</div>
+        </div>
+      </div>
+
+      <div className="mt-4 space-y-4">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Category
+          </div>
+          <select
+            value={draftFilters.category}
+            onChange={(e) =>
+              setDraftFilters((prev) => ({ ...prev, category: e.target.value }))
+            }
+            className="mt-2 w-full rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+          >
+            {availableCategories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Max Price
+            </div>
+            <div className="text-xs font-bold text-slate-900">
+              ₹{Math.round(draftFilters.maxPrice).toLocaleString()}
+            </div>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={catalogMaxPrice || 0}
+            step={1}
+            value={draftFilters.maxPrice}
+            onChange={(e) =>
+              setDraftFilters((prev) => ({
+                ...prev,
+                maxPrice: Number(e.target.value),
+              }))
+            }
+            className="mt-2 w-full accent-emerald-600"
+          />
+          <div className="mt-1 text-[11px] text-slate-500">
+            Up to ₹{Math.round(catalogMaxPrice).toLocaleString()}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            Thickness (min/max)
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-3">
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="Min"
+              value={draftFilters.minThickness}
+              onChange={(e) =>
+                setDraftFilters((prev) => ({
+                  ...prev,
+                  minThickness: e.target.value === "" ? "" : e.target.value,
+                }))
+              }
+              className="w-full rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+            <input
+              type="number"
+              inputMode="numeric"
+              placeholder="Max"
+              value={draftFilters.maxThickness}
+              onChange={(e) =>
+                setDraftFilters((prev) => ({
+                  ...prev,
+                  maxThickness: e.target.value === "" ? "" : e.target.value,
+                }))
+              }
+              className="w-full rounded-xl border border-slate-200/70 bg-white/80 px-3 py-2 text-sm shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            />
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setFilters(draftFilters)}
+          className="w-full rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-700"
+        >
+          Apply Filters
+        </button>
+      </div>
+    </aside>
+  );
 
   async function onFindMatches() {
     const trimmed = query.trim();
@@ -276,207 +473,222 @@ export default function App() {
                 </div>
               </div>
             </div>
-          ) : results.length ? (
-            <div className="mt-6">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">
-                    Recommended Matches
-                  </div>
-                  <div className="text-xs text-slate-600">
-                    Top products ranked by semantic fit.
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">
-                  Showing {results.length} results
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                {results.map((r) => {
-                  const score = Number(r?.score) || 0;
-                  const product = r?.product;
-
-                  return (
-                    <article
-                      key={`${product?.id || r.product_name || "unknown"}-${score}`}
-                      className="group rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="truncate text-base font-bold text-slate-900">
-                            {product?.name || r.product_name || "Unknown product"}
-                          </div>
-                          <div className="mt-1 text-xs font-medium text-slate-500">
-                            {product?.category || "—"}
-                          </div>
-                        </div>
-
-                        {/* Score badge */}
-                        <span
-                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold text-white ${scoreBadgeClass(
-                            score
-                          )}`}
-                          title="Match score (0-100)"
-                        >
-                          {score}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 grid grid-cols-2 gap-3">
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            Thickness
-                          </div>
-                          <div className="mt-1 text-sm font-semibold text-slate-900">
-                            {product?.thickness || "—"}
-                          </div>
-                        </div>
-                        <div className="rounded-xl bg-slate-50 p-3">
-                          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                            Size
-                          </div>
-                          <div className="mt-1 text-sm font-semibold text-slate-900">
-                            {product?.size || "—"}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Explanation highlighted box */}
-                      <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
-                          Why this match
-                        </div>
-                        <div className="mt-1 text-sm font-medium text-emerald-900">
-                          {r.explanation}
-                        </div>
-                      </div>
-
-                      {/* Supplier + price */}
-                      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Supplier
-                          </div>
-                          <div className="mt-1 font-semibold text-slate-900">
-                            {product?.supplier || "—"}
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Price
-                          </div>
-                          <div className="mt-1 font-extrabold text-slate-900">
-                            {formatMoneyPerSqm(product?.price_per_sqm)} / sqm
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          ) : !query.trim() ? (
-            <div className="mt-6">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-900">
-                    Explore All Products
-                  </div>
-                  <div className="text-xs text-slate-600">
-                    Browse the catalog before running an AI-powered search.
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500">
-                  {allProducts.length} products
-                </div>
-              </div>
-
-              <div className="mt-5 grid gap-5 md:grid-cols-2">
-                {allProducts.map((p) => (
-                  <article
-                    key={p.id}
-                    className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-base font-bold text-slate-900">
-                          {p.name}
-                        </h3>
-                        <p className="mt-1 text-xs font-medium text-slate-500">
-                          {p.category}
-                        </p>
-                      </div>
-
-                      <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
-                        Catalog
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      <div className="rounded-xl bg-slate-50 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Thickness
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {p.thickness}
-                        </div>
-                      </div>
-
-                      <div className="rounded-xl bg-slate-50 p-3">
-                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          Size
-                        </div>
-                        <div className="mt-1 text-sm font-semibold text-slate-900">
-                          {p.size}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Supplier
-                        </div>
-                        <div className="mt-1 font-semibold text-slate-900">
-                          {p.supplier}
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Price
-                        </div>
-                        <div className="mt-1 font-extrabold text-slate-900">
-                          {formatMoneyPerSqm(p.price_per_sqm ?? p.price)} / sqm
-                        </div>
-                      </div>
-                    </div>
-
-                    <p className="mt-4 text-sm leading-relaxed text-slate-600">
-                      {p.description}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          ) : query.trim() ? (
-            <div className="mt-6 rounded-2xl border border-slate-200/70 bg-white/70 p-6 shadow-sm backdrop-blur">
-              <div className="text-sm font-semibold text-slate-900">
-                No matches yet. Try describing your requirement.
-              </div>
-              <div className="mt-1 text-xs text-slate-600">
-                Add thickness (mm), safety type (tempered/laminated), color/tint, and approximate dimensions.
-              </div>
-            </div>
           ) : (
-            <div className="mt-6 rounded-2xl border border-slate-200/70 bg-white/70 p-6 shadow-sm backdrop-blur">
-              <div className="text-sm font-semibold text-slate-900">
-                Start by describing your glass project
-              </div>
-              <div className="mt-1 text-xs text-slate-600">
-                Paste your requirement above and click{" "}
-                <span className="font-semibold">Find Best Matches</span>.
+            <div className="mt-6 grid gap-8 lg:grid-cols-[320px_1fr]">
+              {FiltersSidebar}
+              <div>
+                {results.length ? (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          Recommended Matches
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          Top products ranked by semantic fit.
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Showing {filteredMatched.length} results
+                      </div>
+                    </div>
+
+                    {filteredMatched.length ? (
+                      <div className="mt-5 grid gap-5 md:grid-cols-2">
+                        {filteredMatched.map((r) => {
+                          const score = Number(r?.score) || 0;
+                          const product = r?.product;
+
+                          return (
+                            <article
+                              key={`${product?.id || r.product_name || "unknown"}-${score}`}
+                              className="group rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                            >
+                              <div className="flex items-start justify-between gap-4">
+                                <div className="min-w-0">
+                                  <div className="truncate text-base font-bold text-slate-900">
+                                    {product?.name || r.product_name || "Unknown product"}
+                                  </div>
+                                  <div className="mt-1 text-xs font-medium text-slate-500">
+                                    {product?.category || "—"}
+                                  </div>
+                                </div>
+
+                                {/* Score badge */}
+                                <span
+                                  className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-extrabold text-white ${scoreBadgeClass(
+                                    score
+                                  )}`}
+                                  title="Match score (0-100)"
+                                >
+                                  {score}
+                                </span>
+                              </div>
+
+                              <div className="mt-3 grid grid-cols-2 gap-3">
+                                <div className="rounded-xl bg-slate-50 p-3">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                    Thickness
+                                  </div>
+                                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                                    {product?.thickness || "—"}
+                                  </div>
+                                </div>
+                                <div className="rounded-xl bg-slate-50 p-3">
+                                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                    Size
+                                  </div>
+                                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                                    {product?.size || "—"}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Explanation highlighted box */}
+                              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/40 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-800">
+                                  Why this match
+                                </div>
+                                <div className="mt-1 text-sm font-medium text-emerald-900">
+                                  {r.explanation}
+                                </div>
+                              </div>
+
+                              {/* Supplier + price */}
+                              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                                <div>
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Supplier
+                                  </div>
+                                  <div className="mt-1 font-semibold text-slate-900">
+                                    {product?.supplier || "—"}
+                                  </div>
+                                </div>
+
+                                <div className="text-right">
+                                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Price
+                                  </div>
+                                  <div className="mt-1 font-extrabold text-slate-900">
+                                    {formatMoneyPerSqm(
+                                      product?.price_per_sqm ?? product?.price
+                                    )}{" "}
+                                    / sqm
+                                  </div>
+                                </div>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="mt-6 rounded-2xl border border-slate-200/70 bg-white/70 p-6 shadow-sm backdrop-blur">
+                        <div className="text-sm font-semibold text-slate-900">
+                          Try adjusting filters or refining your requirement.
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">
+                          Explore All Products
+                        </div>
+                        <div className="text-xs text-slate-600">
+                          Browse and compare specs before running AI matching.
+                        </div>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {filteredCatalog.length} products
+                      </div>
+                    </div>
+
+                    {query.trim() ? (
+                      <div className="mt-2 text-xs text-slate-500">
+                        No AI matches yet for this requirement—showing catalog instead.
+                      </div>
+                    ) : null}
+
+                    {filteredCatalog.length ? (
+                      <div className="mt-5 grid gap-5 md:grid-cols-2">
+                        {filteredCatalog.map((p) => (
+                          <article
+                            key={p.id}
+                            className="rounded-2xl border border-slate-200/70 bg-white/80 p-5 shadow-sm backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <h3 className="truncate text-base font-bold text-slate-900">
+                                  {p.name}
+                                </h3>
+                                <p className="mt-1 text-xs font-medium text-slate-500">
+                                  {p.category}
+                                </p>
+                              </div>
+
+                              <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                Catalog
+                              </div>
+                            </div>
+
+                            <div className="mt-3 grid grid-cols-2 gap-3">
+                              <div className="rounded-xl bg-slate-50 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                  Thickness
+                                </div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                  {p.thickness}
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl bg-slate-50 p-3">
+                                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                  Size
+                                </div>
+                                <div className="mt-1 text-sm font-semibold text-slate-900">
+                                  {p.size}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Supplier
+                                </div>
+                                <div className="mt-1 font-semibold text-slate-900">
+                                  {p.supplier}
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                  Price
+                                </div>
+                                <div className="mt-1 font-extrabold text-slate-900">
+                                  {formatMoneyPerSqm(p.price_per_sqm ?? p.price)}{" "}
+                                  / sqm
+                                </div>
+                              </div>
+                            </div>
+
+                            <p className="mt-4 text-sm leading-relaxed text-slate-600">
+                              {p.description}
+                            </p>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-6 rounded-2xl border border-slate-200/70 bg-white/70 p-6 shadow-sm backdrop-blur">
+                        <div className="text-sm font-semibold text-slate-900">
+                          Try adjusting filters or refining your requirement.
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )}
