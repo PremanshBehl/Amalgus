@@ -451,6 +451,22 @@ export default function App() {
                   <div className="mt-3 text-xs text-slate-500">
                     Tip: include thickness (mm), safety type (tempered/laminated), color/tint, and approximate dimensions.
                   </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {suggestions.map((s) => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => {
+                          setQuery(s);
+                          setError("");
+                        }}
+                        className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700 shadow-sm ring-1 ring-slate-200/70 transition hover:bg-slate-200"
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
